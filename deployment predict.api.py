@@ -1,50 +1,87 @@
-# Import library yang diperlukan
-from flask import Flask, request, jsonify
-import numpy as np
+
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import pandas as pd
-from sklearn.model_selection import train_test_split
-from sklearn.linear_model import LogisticRegressionp
-from sklearn.metrics import accuracy_score
+from typing import List
 
-# Inisialisasi aplikasi Flask
-app = Flask(__name__)
+app = FastAPI()
 
-# Memuat dataset
-dataset = pd.read_csv('data.csv')
+class TextInput(BaseModel):
+    message: str
 
-# Preprocessing dataset
-# Misalnya, jika terdapat data yang perlu diubah formatnya atau dihapus kolom tertentu
-dataset = dataset.dropna()  # Menghapus baris dengan nilai yang hilang
-dataset['feature1'] = dataset['feature1'].astype(int)  # Mengubah tipe data kolom feature1 menjadi integer
+class Item(BaseModel):
+    id: int
+    message: str
 
-# Memisahkan dataset menjadi data training dan data testing
-X = dataset.drop('target', axis=1)
-y = dataset['target']
-X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+CSV_FILE = 'data.csv'
 
-# Melakukan training model
-model = LogisticRegression()
-model.fit(X_train, y_train)
+def read_csv():
+    try:
+        df = pd.read_csv(CSV_FILE)
+        return df.to_dict(orient='records')
+    except FileNotFoundError:
+        return []
 
-# Definisikan endpoint untuk menerima request POST
-@app.route('/predict', methods=['POST'])
-def predict():
-    # Mengambil data input dari request
-    data = request.get_json()
+def write_csv(data):
+    df = pd.DataFrame(data)
+    df.to_csv(CSV_FILE, index=False)
 
-    # Melakukan preprocessing pada data input
-    # Misalnya, jika data input berupa array numerik,  dapat mengubahnya menjadi numpy array
-    input_data = np.array(data)
+@app.get("/")
+@app.get("/hai")
+def hello():
+    return {"message": "halo"}
 
-    # Melakukan prediksi menggunakan model yang telah di-train sebelumnya
-    prediction = model.predict(input_data)
+@app.post("/lower")
+def lower(input_data: TextInput):
+    processed_text = input_data.message.lower()
+    return {"message": processed_text}
 
-    # Mengubah hasil prediksi menjadi format JSON
-    result = {'prediction': prediction}
+@app.get("/items", response_model=List[Item])
+def read_items():
+    items = read_csv()
+    return items
 
-    # Mengembalikan hasil prediksi dalam format JSON
-    return jsonify(result)
+@app.get("/items/{item_id}", response_model=Item)
+def read_item(item_id: int):
+    items = read_csv()
+    item = next((item for item in items if item['id'] == item_id), None)
+    if item:
+        return item
+    else:
+        raise HTTPException(status_code=404, detail="Item not found")
 
-# Menjalankan aplikasi Flask di localhost dengan port 5000
-if __name__ == '__main__':
-    app.run(port=5000)
+@app.post("/items", response_model=Item)
+def create_item(item: Item):
+    items = read_csv()
+    new_item = {"id": item.id, "message": item.message}
+    items.append(new_item)
+    write_csv(items)
+    return new_item
+
+@app.put("/items/{item_id}", response_model=Item)
+def update_item(item_id: int, item: Item):
+    items = read_csv()
+    index = next((index for index, i in enumerate(items) if i['id'] == item_id), None)
+    if index is not None:
+        items[index] = {"id": item.id, "message": item.message}
+        write_csv(items)
+        return items[index]
+    else:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+@app.delete("/items/{item_id}", response_model=Item)
+def delete_item(item_id: int):
+    items = read_csv()
+    index = next((index for index, item in enumerate(items) if item['id'] == item_id), None)
+    if index is not None:
+        deleted_item = items.pop(index)
+        write_csv(items)
+        return deleted_item
+    else:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+# uvicorn fast_api_v2:app --reload
