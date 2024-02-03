@@ -1,45 +1,90 @@
-# Import library yang diperlukan
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 import pandas as pd
-import numpy as np
+from typing import List
 
-# Memuat dataset
-dataset = pd.read_csv('data.csv')
+app = FastAPI()
 
-# Eksplorasi Data Analysis
-# Contoh 1: Menambahkan kolom baru yang merupakan jumlah dari dua kolom lainnya
-dataset['new_feature'] = dataset['feature1'] + dataset['feature2']
+class TextInput(BaseModel):
+    message: str
 
-# Contoh 2: Menghitung rata-rata dari suatu kolom
-mean_value = dataset['feature3'].mean()
+class Item(BaseModel):
+    id: int
+    message: str
 
-# Contoh 3: Mengganti nilai yang hilang (missing values) dengan nilai rata-rata
-dataset['feature4'] = dataset['feature4'].fillna(mean_value)
+CSV_FILE = 'data.csv'
 
-# Contoh 4: Mengubah tipe data kolom menjadi kategori
-dataset['category'] = dataset['category'].astype('category')
+def read_csv():
+    try:
+        df = pd.read_csv(CSV_FILE)
+        return df.to_dict(orient='records')
+    except FileNotFoundError:
+        return []
 
-# Contoh 5: Menggunakan teknik one-hot encoding untuk kolom kategori
-one_hot_encoded = pd.get_dummies(dataset['category'])
+def write_csv(data):
+    df = pd.DataFrame(data)
+    df.to_csv(CSV_FILE, index=False)
 
-# Contoh 6: Menggabungkan dataset dengan dataset lain berdasarkan kolom tertentu
-other_dataset = pd.read_csv('other_data.csv')
-merged_dataset = pd.merge(dataset, other_dataset, on='id')
+@app.get("/")
+@app.get("/hai")
+def hello():
+    return {"message": "halo "}
 
-# Contoh 7: Melakukan analisis statistik sederhana
-min_value = dataset['feature1'].min()
-max_value = dataset['feature1'].max()
-std_dev = dataset['feature1'].std()
+@app.post("/lower")
+def lower(input_data: TextInput):
+    processed_text = input_data.message.lower()
+    return {"message": processed_text}
 
-# Contoh 8: Menyimpan dataset yang telah diubah ke dalam file CSV
-dataset.to_csv('modified_data.csv', index=False)
+@app.get("/items", response_model=List[Item])
+def read_items():
+    items = read_csv()
+    return items
 
-# Contoh 9: Menampilkan ringkasan statistik dari dataset
-summary_stats = dataset.describe()
+@app.get("/items/{item_id}", response_model=Item)
+def read_item(item_id: int):
+    items = read_csv()
+    item = next((item for item in items if item['id'] == item_id), None)
+    if item:
+        return item
+    else:
+        raise HTTPException(status_code=404, detail="Item not found")
 
-# Contoh 10: Menampilkan visualisasi data menggunakan library seperti matplotlib atau seaborn
-import matplotlib.pyplot as plt
-plt.scatter(dataset['feature1'], dataset['feature2'])
-plt.xlabel('Feature 1')
-plt.ylabel('Feature 2')
-plt.title('Scatter Plot')
-plt.show()
+@app.post("/items", response_model=Item)
+def create_item(item: Item):
+    items = read_csv()
+    new_item = {"id": item.id, "message": item.message}
+    items.append(new_item)
+    write_csv(items)
+    return new_item
+
+@app.put("/items/{item_id}", response_model=Item)
+def update_item(item_id: int, item: Item):
+    items = read_csv()
+    index = next((index for index, i in enumerate(items) if i['id'] == item_id), None)
+    if index is not None:
+        items[index] = {"id": item.id, "message": item.message}
+        write_csv(items)
+        return items[index]
+    else:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+@app.delete("/items/{item_id}", response_model=Item)
+def delete_item(item_id: int):
+    items = read_csv()
+    index = next((index for index, item in enumerate(items) if item['id'] == item_id), None)
+    if index is not None:
+        deleted_item = items.pop(index)
+        write_csv(items)
+        return deleted_item
+    else:
+        raise HTTPException(status_code=404, detail="Item not found")
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run(app, host="127.0.0.1", port=8000)
+
+# uvicorn fast_api_v2:app --reload
+
+
+
+
